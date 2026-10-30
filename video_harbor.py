@@ -997,3 +997,241 @@ class VideoHarborApp(tk.Tk):
             self._send('done', 'download', completed, failed, self.stop_flag.is_set())
         except BaseException as exc:
             self._send('fatal', 'Download', str(exc))
+
+    def _video_status(self, key, status):
+        video = self.by_key.get(key)
+        if video is None:
+            return
+        video.status = status
+        widgets = self.row_widgets.get(key)
+        if widgets:
+            fg = ('#65d4af' if status == 'Complete' else
+                  '#f29aa2' if status == 'Failed' else
+                  '#6cb7ff' if status.startswith(('Downloading', 'Processing')) else COLOR_MUTED)
+            widgets['status'].configure(text=status, fg=fg)
+            # Highlight the active video row for an unmistakable in-app indicator.
+            active = status.startswith(('Downloading', 'Processing'))
+            bg = '#29496c' if active else (COLOR_PANEL if (self.videos.index(video) % 2 == 0)
+                                          else '#1d2c3d')
+            widgets['row'].configure(bg=bg)
+            for field in ('check_widget', 'number', 'photo', 'name', 'duration', 'size',
+                          'site', 'folder', 'status'):
+                widgets[field].configure(bg=bg)
+            widgets['check_widget'].configure(activebackground=bg)
+
+    def cancel(self):
+        if self.worker_running:
+            self.stop_flag.set()
+            self.status_var.set('Stopping after current network operation…')
+            if self.taskbar:
+                self.taskbar.state(self.taskbar.PAUSED)
+
+    def _remove_files(self, videos):
+        deleted = 0
+        for video in videos:
+            root = video.download_root or Path(self.save_var.get().strip()).expanduser()
+            still_present = []
+            for f in video.saved_files:
+                if not f.exists():
+                    continue  # Already deleted by the user, no need to report an error.
+                if safe_delete_tracked(f, root):
+                    deleted += 1
+                else:
+                    still_present.append(f)
+                    self._append_log(f'NOT DELETED (unsafe or locked file): {f}')
+            video.saved_files = still_present
+        return deleted
+
+    def clear_completed(self):
+        if self.worker_running:
+            messagebox.showwarning('Busy', 'Stop the active job first.')
+            return
+        completed = [v for v in (self.videos + self.archive_videos)
+                     if v.status == 'Complete']
+        if not completed:
+            messagebox.showinfo('Nothing to clear', 'No successfully downloaded items are listed.')
+            return
+        files = sum(len(v.saved_files) for v in completed)
+        if not messagebox.askyesno('Clear completed downloads',
+                f'Permanently delete {files} app-tracked file(s) from the disk and remove '
+                f'{len(completed)} completed row(s)?\n\nFailed, stopped and pending '
+                'items will be kept. Pre-existing files are not deleted.'):
+            return
+        removed = self._remove_files(completed)
+        cleared = [v for v in completed if not v.saved_files]
+        for v in cleared:
+            if v.key in self.by_key and self.by_key[v.key] is v:
+                self._remove_video(v)
+        cleared_ids = {id(v) for v in cleared}
+        self.archive_videos = [v for v in self.archive_videos if id(v) not in cleared_ids]
+        self.status_var.set(f'Cleared {len(cleared)} completed item(s); deleted {removed} file(s).'
+                            + (' Some files could not be deleted; see Activity log.'
+                               if len(cleared) != len(completed) else ''))
+        self._set_buttons()
+
+    def clear_all(self):
+        if self.worker_running:
+            messagebox.showwarning('Busy', 'Stop the active job first.')
+            return
+        files = sum(len(v.saved_files) for v in self.videos + self.archive_videos)
+        if not messagebox.askyesno('Clear ALL downloads and links',
+                f'Permanently delete {files} app-tracked file(s), remove all '
+                f'{len(self.videos)} video row(s), and remove all {len(self.queued_urls)} queued link(s)?'
+                '\n\nOnly files created by VideoHarbor during this session will be deleted. '
+                'This cannot be undone.'):
+            return
+        deleted = self._remove_files(self.videos + self.archive_videos)
+        leftovers = [v for v in self.videos + self.archive_videos if v.saved_files]
+        current_ids = {id(v) for v in self.videos}
+        self.archive_videos = [v for v in leftovers if id(v) not in current_ids]
+        for v in list(self.videos):
+            if v not in leftovers:
+                self._remove_video(v)
+            else:
+                self._video_status(v.key, 'Delete failed')
+        self.queued_urls.clear()
+        self.link_box.delete('1.0', 'end')
+        self.progress_var.set(0)
+        self.queue_var.set('No links in queue')
+        self.active_var.set('Idle')
+        self.status_var.set(f'Deleted {deleted} tracked file(s).'
+                            + (f' {len(leftovers)} item(s) still have files that could not be deleted.'
+                               if leftovers else ' All links and rows cleared.'))
+        self.title(APP_NAME)
+        self._refresh_counts()
+        self._set_buttons()
+        if self.taskbar:
+            self.taskbar.state(self.taskbar.NO_PROGRESS)
+
+    def show_log(self):
+        if self.log_window and self.log_window.winfo_exists():
+            self.log_window.lift()
+            return
+        popup = tk.Toplevel(self)
+        popup.title('VideoHarbor 1.2 — Activity log')
+        popup.geometry('830x470')
+        popup.configure(bg=COLOR_BG)
+        self.log_window = popup
+        panel = ttk.Frame(popup, padding=12)
+        panel.pack(fill='both', expand=True)
+        text = tk.Text(panel, bg=COLOR_PANEL, fg=COLOR_TEXT,
+                       insertbackground=COLOR_TEXT, font=('Consolas', 10),
+                       padx=12, pady=12, bd=0)
+        text.pack(fill='both', expand=True)
+        text.insert('end', '\n'.join(self.log_lines))
+        text.see('end')
+        text.configure(state='disabled')
+        self.log_box = text
+        def on_close():
+            self.log_window = None
+            self.log_box = None
+            popup.destroy()
+        popup.protocol('WM_DELETE_WINDOW', on_close)
+
+    def _append_log(self, text):
+        self.log_lines.append(str(text))
+        self.log_lines = self.log_lines[-500:]
+        if self.log_box and self.log_box.winfo_exists():
+            self.log_box.configure(state='normal')
+            self.log_box.insert('end', str(text) + '\n')
+            self.log_box.see('end')
+            self.log_box.configure(state='disabled')
+
+    def _poll(self):
+        try:
+            for _ in range(250):
+                try:
+                    event, *args = self.events.get_nowait()
+                except queue.Empty:
+                    break
+                if event == 'item':
+                    self._add_video(args[0])
+                elif event == 'thumbnail':
+                    key, picture = args
+                    if key in self.row_widgets and ImageTk is not None:
+                        imgtk = ImageTk.PhotoImage(picture)
+                        self.images[key] = imgtk
+                        self.row_widgets[key]['photo'].configure(image=imgtk)
+                elif event == 'correct_title':
+                    key, actual_title = args
+                    if key in self.row_widgets:
+                        self.row_widgets[key]['name'].configure(text=actual_title)
+                elif event == 'actual_size':
+                    key, actual = args
+                    if key in self.row_widgets:
+                        self.row_widgets[key]['size'].configure(text=readable_size(actual))
+                elif event == 'video_status':
+                    self._video_status(*args)
+                elif event == 'log':
+                    self._append_log(args[0])
+                elif event == 'status':
+                    self.status_var.set(args[0])
+                elif event == 'active':
+                    self.active_var.set(args[0])
+                elif event == 'title':
+                    self.title(f'{APP_NAME} — {args[0]}')
+                elif event == 'progress':
+                    self.progress_var.set(args[0])
+                    if self.taskbar and self.operation == 'download':
+                        self.taskbar.value(args[0])
+                elif event in ('done', 'fatal'):
+                    self.progress.stop()
+                    self.progress.configure(mode='determinate')
+                    self.title(APP_NAME)
+                    if event == 'fatal':
+                        operation, problem = args
+                        self.status_var.set(f'{operation} failed: {problem}')
+                        self._append_log(f'{operation} error: {problem}')
+                        self.active_var.set(f'❌ {operation} error')
+                        if self.taskbar:
+                            self.taskbar.state(self.taskbar.ERROR)
+                    else:
+                        op, completed, failed, stopped = args
+                        if op == 'analysis':
+                            self.active_var.set('Search stopped' if stopped else 'Analysis complete')
+                            self.status_var.set(f'{completed} videos found. '
+                                                + ('Search stopped.' if stopped else 'Select videos and download.'))
+                        else:
+                            self.active_var.set('Download stopped' if stopped else 'Download complete')
+                            self.status_var.set(f'{completed} completed, {failed} failed.'
+                                                + (' Stopped early.' if stopped else ''))
+                            if not stopped:
+                                self.progress_var.set(100)
+                        if self.taskbar:
+                            self.taskbar.state(self.taskbar.ERROR if failed else self.taskbar.NO_PROGRESS)
+                    self.worker_running = False
+                    self.operation = ''
+                    self._set_buttons()
+        finally:
+            try:
+                self.after(100, self._poll)
+            except tk.TclError:
+                pass
+
+    def _on_close(self):
+        if self.worker_running:
+            if not messagebox.askyesno('Quit VideoHarbor',
+                    'A job is running. Stop and exit? Partially downloaded files may remain.'):
+                return
+            self.stop_flag.set()
+        if self.taskbar:
+            self.taskbar.close()
+        self.thumbs.shutdown(wait=False, cancel_futures=True)
+        self.destroy()
+
+
+def main():
+    if yt_dlp is None or Image is None:
+        missing = 'yt-dlp' if yt_dlp is None else 'Pillow'
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror('Missing dependency', f'Please install {missing} using Setup_Windows.bat.')
+        root.destroy()
+        return 1
+    app = VideoHarborApp()
+    app.mainloop()
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
