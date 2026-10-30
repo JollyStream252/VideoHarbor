@@ -4,7 +4,7 @@
 
 # VideoHarbor 1.2 — Windows desktop downloader
 
-VideoHarbor is a **free, local Windows desktop app** built using Python/Tkinter, Pillow and yt-dlp. It downloads videos and playlists from yt-dlp-compatible websites. Its interface displays each video individually so you can inspect and select before downloading. No server account, advertising, or subscription is added by VideoHarbor.
+VideoHarbor is a **free, local Windows desktop app** built using Python/Tkinter, Pillow and yt-dlp. It downloads videos and playlists from yt-dlp-compatible websites, and can discover publicly listed uploads from XVideos creator/channel pages. Its interface displays each video individually so you can inspect and select before downloading. No server account, advertising, or subscription is added by VideoHarbor.
 
 ## What changed in 1.2
 
@@ -39,9 +39,9 @@ The EXE contains the app, Python dependencies and its icon. **FFmpeg and Deno ma
 
 ## How to use VideoHarbor
 
-1. Copy one or more video / playlist URLs from a supported website.
+1. Copy one or more video / playlist URLs from a supported website. XVideos creator URLs (for example, `https://www.xvideos.com/channels/creator-name`) also work as channel listings.
 2. Paste them using **Paste + add**, or Ctrl+V within the link input. The URLs go into a queue and the input clears automatically. You can paste multiple lines. You can type URLs and use **Add links**.
-3. Press **Analyze**. Each video appears as a separate row, with checkbox, playlist position, thumbnail, title, duration, estimated file size, website, destination folder, and status.
+3. Press **Analyze**. Each video appears as a separate row, with checkbox, playlist position, thumbnail, title, duration, estimated file size, website, destination folder, and status. XVideos creator pages are paginated automatically, with visible analysis progress; listing metadata might omit an estimated size.
 4. Check the videos you want (use Select all / Select none as needed).
 5. Choose **Quality** (Best, 2160p, 1440p, 1080p, 720p, 480p, 360p, or MP3 audio) and **Save to** destination.
 6. Press **Download checked** or **Download all**.
@@ -105,3 +105,8 @@ VideoHarbor code is MIT-licensed, see `LICENSE`. Upstream tools retain their own
 This project can be stored in a GitHub repository with the files in this folder at repository root. `.gitignore` prevents generated videos, caches, and builds from being committed accidentally. `requirements.txt` lists the core Python dependencies.
 
 The optional GitHub Actions workflow at `.github/workflows/windows-build.yml` runs tests and builds a Windows EXE on pushes to `main` that touch code/build files, or when manually dispatched from the Actions tab. The compiled EXE is an Actions artifact, **not** automatically published as a release. Windows build and taskbar integration still require testing on an actual Windows machine.
+
+
+### XVideos creator/channel downloads
+
+Paste a public XVideos creator URL (`/channels/NAME`, `/profiles/NAME`, `/models/NAME`, or a supported bare creator slug) and click **Analyze**. VideoHarbor enumerates the creator's uploads from public listing pages, filters duplicates, and displays titles, thumbnails, playlist positions, and a channel-specific save folder. Select any subset or use **Download all**; individual files are downloaded by yt-dlp. The **Stop** button interrupts enumeration. This uses a site-specific, unofficial listing endpoint, so it may stop working if the site changes and doesn't guarantee that private, restricted, or removed videos can be listed or downloaded. Large creator archives may take a while to enumerate and download. Use only for content you have permission to save.

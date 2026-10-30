@@ -141,3 +141,67 @@ class Version12Tests(unittest.TestCase):
             self.assertEqual(video.saved_files, [video.completed_media])
             self.assertIn(('video_status', 'v1', 'Complete'), obj.events)
             self.assertTrue(any(e[0] == 'progress' for e in obj.events))
+
+
+# Channel listings are tested entirely offline with simulated site responses.
+from xvideos_channels import channel_from_url, iter_channel_videos
+
+
+class ChannelTests(unittest.TestCase):
+    def test_creator_url_detection(self):
+        self.assertEqual(channel_from_url('https://www.xvideos.com/channels/test-user'), ('channels', 'test-user'))
+        self.assertEqual(channel_from_url('https://www.xvideos.com/test-user'), ('channels', 'test-user'))
+        self.assertEqual(channel_from_url('https://www.xvideos.com/models/artist'), ('models', 'artist'))
+        for url in (
+            'https://www.xvideos.com/video1234/example',
+            'https://www.xvideos.com/video.abc/example',
+            'https://www.xvideos.com/search/term',
+            'https://www.xvideos.com/',
+            'https://notxvideos.com/channels/creator',
+            'https://www.xvideos.com/channels',
+        ):
+            self.assertIsNone(channel_from_url(url), url)
+
+    def test_paginated_creator_and_duplicate_results(self):
+        calls = []
+        def fetch(kind, slug, page):
+            calls.append((kind, slug, page))
+            if kind != 'channels':
+                return None
+            if page == 0:
+                return {'nb_videos': 3, 'nb_per_page': 2, 'videos': [
+                    {'eid': 'aa11', 't': 'First', 'pn': 'My Channel', 'd': '1:25',
+                     'il': '/pictures/first.jpg'},
+                    {'eid': 'bb22', 'tf': 'Second', 'pn': 'My Channel'},
+                ]}
+            if page == 1:
+                return {'nb_videos': 3, 'nb_per_page': 2, 'videos': [
+                    {'eid': 'aa11', 't': 'First duplicate'},
+                    {'id': 123456, 't': 'Third'},
+                ]}
+        rows = list(iter_channel_videos('https://www.xvideos.com/channels/creator', fetch_page=fetch))
+        self.assertEqual([r['title'] for r in rows], ['First', 'Second', 'Third'])
+        self.assertEqual([r['index'] for r in rows], [1, 2, 3])
+        self.assertEqual([r['total'] for r in rows], [3, 3, 3])
+        self.assertEqual([r['group'] for r in rows], ['My Channel'] * 3)
+        self.assertEqual(rows[0]['thumbnail'], 'https://www.xvideos.com/pictures/first.jpg')
+        self.assertEqual(rows[2]['url'], 'https://www.xvideos.com/video123456')
+        self.assertEqual(len(calls), 2)
+
+    def test_stop_during_channel_listing(self):
+        stop = [False]
+        def fetch(kind, slug, page):
+            return {'nb_videos': 100, 'nb_per_page': 1,
+                    'videos': [{'eid': 'a123', 't': 'First'}]}
+        def stopped():
+            return stop[0]
+        gen = iter_channel_videos('https://www.xvideos.com/profiles/creator',
+                                  stop=stopped, fetch_page=fetch)
+        self.assertEqual(next(gen)['title'], 'First')
+        stop[0] = True
+        self.assertEqual(list(gen), [])
+
+    def test_unavailable_creator(self):
+        with self.assertRaises(RuntimeError):
+            list(iter_channel_videos('https://www.xvideos.com/channels/nope',
+                                     fetch_page=lambda *_: None))
