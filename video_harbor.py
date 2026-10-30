@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from xvideos_channels import channel_from_url, iter_channel_videos
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -493,7 +495,7 @@ class VideoHarborApp(tk.Tk):
         ttk.Label(header, text='VideoHarbor 1.2', font=('Segoe UI Semibold', 21)).pack(side='left')
         ttk.Label(header, text='  •  yt-dlp powered  •  Windows desktop',
                   style='Muted.TLabel').pack(side='left', pady=9)
-        ttk.Label(wrap, text='Paste video or playlist URLs (multiple links supported)',
+        ttk.Label(wrap, text='Paste video, playlist, or creator channel URLs (multiple links supported)',
                   font=('Segoe UI Semibold', 11)).pack(anchor='w')
         top = ttk.Frame(wrap)
         top.pack(fill='x', pady=(6, 4))
@@ -783,13 +785,13 @@ class VideoHarborApp(tk.Tk):
             return
         self.add_typed_links()
         if not self.queued_urls:
-            messagebox.showwarning('No URLs', 'Paste a video or playlist link first.')
+            messagebox.showwarning('No URLs', 'Paste a video, playlist, or creator channel link first.')
             return
         # Keep file records from earlier analyses for safe Clear/Clear All.
         self.archive_videos.extend(v for v in self.videos if v.saved_files)
         self._clear_rows()
         self.progress_var.set(0)
-        self.active_var.set('Searching videos and playlist details…')
+        self.active_var.set('Searching videos, playlists, and channels…')
         self.status_var.set(f'Analyzing {len(self.queued_urls)} queued link(s)')
         self._start('analysis', self._analyze_worker, list(self.queued_urls))
 
@@ -810,6 +812,22 @@ class VideoHarborApp(tk.Tk):
                     self._send('active', f'🔎 Analyzing {n}/{len(urls)} links')
                     self._send('title', f'Analyzing {n}/{len(urls)}')
                     try:
+                        if channel_from_url(url):
+                            self._send('status', f'Reading creator channel {n}/{len(urls)}: {url[:85]}')
+                            for data in iter_channel_videos(url, stop=self.stop_flag.is_set):
+                                if self.stop_flag.is_set():
+                                    break
+                                total += 1
+                                video = Video(f'video_{total}', data['title'], data['url'],
+                                              website_name(data['url']), data['group'], True,
+                                              data['index'], data['duration'], thumbnail=data['thumbnail'],
+                                              playlist_total=data['total'])
+                                self._send('item', video)
+                                if video.thumbnail:
+                                    self.thumbs.submit(self._load_thumbnail, video.key, video.thumbnail)
+                                if total % 25 == 0:
+                                    self._send('status', f'Discovered {total} videos so far…')
+                            continue
                         info = ydl.extract_info(url, download=False)
                         if not info:
                             self._send('log', f'No videos found at {url}')
