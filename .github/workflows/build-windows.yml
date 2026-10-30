@@ -6,7 +6,9 @@ on:
     paths:
       - '.github/workflows/build-windows.yml'
       - 'video_harbor.py'
-      - 'VideoHarbor_GitHub_1.2_Source.zip'
+      - 'requirements.txt'
+      - 'test_video_harbor.py'
+      - 'assets/**'
   workflow_dispatch:
 
 permissions:
@@ -24,37 +26,37 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: VideoHarbor_GitHub_1.2_Source.zip
+          cache-dependency-path: 'requirements.txt'
 
-      - name: Extract original 1.2 source package
+      - name: Verify application files
         shell: pwsh
         run: |
-          Expand-Archive -LiteralPath 'VideoHarbor_GitHub_1.2_Source.zip' -DestinationPath 'source' -Force
-          if (!(Test-Path 'source/video_harbor.py')) { throw 'Missing app source' }
-          if (!(Test-Path 'source/assets/VideoHarbor.ico')) { throw 'Missing Windows app icon' }
+          foreach ($path in @('video_harbor.py', 'test_video_harbor.py', 'requirements.txt', 'assets/VideoHarbor.ico')) {
+            if (!(Test-Path $path)) { throw "Missing required build file: $path" }
+          }
 
       - name: Install dependencies
-        working-directory: source
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
-      - name: Run automated checks
-        working-directory: source
+      - name: Run automated tests
         shell: pwsh
         run: python -m unittest -v test_video_harbor.py
 
       - name: Build VideoHarbor.exe
-        working-directory: source
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoHarbor --icon "assets/VideoHarbor.ico" --add-data "assets;assets" --collect-all yt_dlp --collect-all yt_dlp_ejs video_harbor.py
+          $extra = @()
+          python -c "import yt_dlp_ejs" 2>$null
+          if ($LASTEXITCODE -eq 0) { $extra = @('--collect-all', 'yt_dlp_ejs') }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoHarbor --icon "assets/VideoHarbor.ico" --add-data "assets;assets" --collect-all yt_dlp @extra video_harbor.py
 
-      - name: Upload executable
+      - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: VideoHarbor-1.2-Windows
-          path: source/dist/VideoHarbor.exe
+          path: dist/VideoHarbor.exe
           if-no-files-found: error
           retention-days: 30
