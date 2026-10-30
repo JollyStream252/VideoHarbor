@@ -1,3 +1,7 @@
+> **Windows executable available:** [Download the latest successful VideoHarbor 1.2 Windows build](https://github.com/JollyStream252/VideoHarbor/actions/workflows/build-windows.yml) from the Artifacts section of a successful workflow run. Extract the artifact ZIP and open `VideoHarbor.exe`. The app build is unsigned and may require Windows SmartScreen confirmation. FFmpeg and Deno may need separate installation for some sites. Actual website downloads should be verified by users.
+>
+> **Automated builds:** The Windows GitHub Actions workflow runs the test suite, packages the app with PyInstaller and uploads a Windows executable. If you prefer source installation, use the scripts below or the included `VideoHarbor_GitHub_1.2_Source.zip`.
+
 # VideoHarbor 1.2 — Windows desktop downloader
 
 VideoHarbor is a **free, local Windows desktop app** built using Python/Tkinter, Pillow and yt-dlp. It downloads videos and playlists from yt-dlp-compatible websites. Its interface displays each video individually so you can inspect and select before downloading. No server account, advertising, or subscription is added by VideoHarbor.
