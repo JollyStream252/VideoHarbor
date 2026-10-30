@@ -1,0 +1,41 @@
+name: Build Windows executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'assets/**'
+      - '.github/workflows/windows-build.yml'
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Run tests
+        run: python -m unittest -v test_video_harbor.py
+      - name: Build exe
+        shell: pwsh
+        run: |
+          $extra = @()
+          python -c "import yt_dlp_ejs" 2>$null
+          if ($LASTEXITCODE -eq 0) { $extra = @('--collect-all', 'yt_dlp_ejs') }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoHarbor --icon "assets/VideoHarbor.ico" --add-data "assets;assets" --collect-all yt_dlp @extra video_harbor.py
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoHarbor-1.2-Windows
+          path: dist/VideoHarbor.exe
+          if-no-files-found: error
