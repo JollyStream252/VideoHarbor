@@ -1,0 +1,60 @@
+name: Build VideoHarbor 1.2 for Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-windows.yml'
+      - 'video_harbor.py'
+      - 'VideoHarbor_GitHub_1.2_Source.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: VideoHarbor_GitHub_1.2_Source.zip
+
+      - name: Extract original 1.2 source package
+        shell: pwsh
+        run: |
+          Expand-Archive -LiteralPath 'VideoHarbor_GitHub_1.2_Source.zip' -DestinationPath 'source' -Force
+          if (!(Test-Path 'source/video_harbor.py')) { throw 'Missing app source' }
+          if (!(Test-Path 'source/assets/VideoHarbor.ico')) { throw 'Missing Windows app icon' }
+
+      - name: Install dependencies
+        working-directory: source
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Run automated checks
+        working-directory: source
+        shell: pwsh
+        run: python -m unittest -v test_video_harbor.py
+
+      - name: Build VideoHarbor.exe
+        working-directory: source
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name VideoHarbor --icon "assets/VideoHarbor.ico" --add-data "assets;assets" --collect-all yt_dlp --collect-all yt_dlp_ejs video_harbor.py
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoHarbor-1.2-Windows
+          path: source/dist/VideoHarbor.exe
+          if-no-files-found: error
+          retention-days: 30
