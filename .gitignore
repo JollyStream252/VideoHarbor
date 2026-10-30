@@ -1,0 +1,26 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# PyInstaller products and runtime downloads
+build/
+dist/
+*.spec
+*.log
+*.part
+*.ytdl
+*.mp4
+*.mkv
+*.webm
+*.mp3
+*.m4a
+*.jpg
+!assets/*.png
+
+# Local state
+.DS_Store
+Thumbs.db
+*.egg-info/
